@@ -25,88 +25,52 @@ jobs:
             https://api.github.com/repos/dortania/OpenCore-Legacy-Patcher/releases/latest \
             | jq '.assets[] | {name: .name, url: .browser_download_url}'
 
-      - name: Download OCLP release asset (try all archive assets)
+      - name: Download and install OCLP pkg
         run: |
           set -euo pipefail
           mkdir -p oclp
           cd oclp
 
-          echo "=== Fetching all archive assets from latest release ==="
+          echo "=== Fetching OCLP pkg asset ==="
 
-          ASSET_URLS=$(curl -sL -H "Accept: application/vnd.github.v3+json" \
+          # 找到主程序 pkg (排除 Uninstaller 和 AutoPkg)
+          PKG_URL=$(curl -sL -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/dortania/OpenCore-Legacy-Patcher/releases/latest \
-            | jq -r '.assets[] | select(.name | test("\\.(zip|tar\\.gz|tar\\.xz|dmg|pkg)$")) | .browser_download_url' 2>/dev/null)
+            | jq -r '.assets[] | select(.name | test("OpenCore-Patcher\\.pkg$")) | .browser_download_url' | head -1)
 
-          if [[ -z "$ASSET_URLS" ]]; then
-            echo "WARNING: No archive assets found, trying all assets..."
-            ASSET_URLS=$(curl -sL -H "Accept: application/vnd.github.v3+json" \
-              https://api.github.com/repos/dortania/OpenCore-Legacy-Patcher/releases/latest \
-              | jq -r '.assets[] | .browser_download_url' 2>/dev/null)
-          fi
-
-          if [[ -z "$ASSET_URLS" ]]; then
-            echo "ERROR: No assets found in latest release"
+          if [[ -z "$PKG_URL" ]]; then
+            echo "ERROR: OpenCore-Patcher.pkg not found"
             exit 1
           fi
 
-          echo "Found assets:"
-          echo "$ASSET_URLS"
+          echo "Downloading: $PKG_URL"
+          curl -fL -o OpenCore-Patcher.pkg "$PKG_URL"
 
-          DOWNLOAD_OK=false
-          while IFS= read -r URL; do
-            [[ -z "$URL" ]] && continue
-            echo "Trying: $URL"
-            for i in 1 2 3; do
-              echo "  Attempt $i/3..."
-              if curl -fL --retry 2 --retry-delay 5 -o OCLP.zip "$URL"; then
-                SIZE=$(stat -c%s OCLP.zip 2>/dev/null || stat -f%z OCLP.zip)
-                if [[ $SIZE -gt 1000000 ]]; then
-                  echo "  Download OK ($SIZE bytes)"
-                  DOWNLOAD_OK=true
-                  break 2
-                else
-                  echo "  File too small ($SIZE bytes), retrying..."
-                  rm -f OCLP.zip
-                fi
-              else
-                echo "  curl failed, retrying..."
-              fi
-              sleep 5
-            done
-          done <<< "$ASSET_URLS"
+          echo "Installing pkg..."
+          sudo installer -pkg OpenCore-Patcher.pkg -target /
 
-          if [[ "$DOWNLOAD_OK" != "true" ]]; then
-            echo "All assets failed to download"
+          # 找到安装后的 OpenCore-Patcher.app
+          OCLP_APP=$(find /Applications -name "OpenCore-Patcher.app" -maxdepth 2 2>/dev/null | head -1)
+          if [[ -z "$OCLP_APP" ]]; then
+            OCLP_APP=$(find / -name "OpenCore-Patcher.app" -maxdepth 4 2>/dev/null | head -1)
+          fi
+
+          if [[ -z "$OCLP_APP" ]]; then
+            echo "ERROR: OpenCore-Patcher.app not found after install"
             exit 1
           fi
 
-          if ! unzip -t OCLP.zip >/dev/null 2>&1; then
-            echo "Zip integrity check failed"
-            exit 1
-          fi
+          echo "Found OCLP at: $OCLP_APP"
 
-          unzip -q OCLP.zip
-          ls -la
-
-      - name: Install OCLP dependencies
-        run: |
-          cd oclp/OpenCore-Patcher
-          python3 -m pip install --upgrade pip
-          python3 -m pip install -r requirements.txt
-
-      - name: Build EFI for MacBookPro14,1 (Sequoia 15.x)
-        run: |
-          cd oclp/OpenCore-Patcher
-          python3 build_open_core.py --help || true
-          python3 build_open_core.py \
+          # 运行构建命令
+          echo "Building EFI for MacBookPro14,1 (Sequoia 15.x)..."
+          "$OCLP_APP/Contents/Resources/build_open_core.py" \
             --model MacBookPro14,1 \
             --version 15.0 \
             --output ./EFI \
             --no-gui
 
-      - name: Verify EFI structure
-        run: |
-          cd oclp/OpenCore-Patcher
+          # 验证生成的 EFI
           echo "=== EFI directory structure ==="
           find EFI -type f | head -30
           echo ""
@@ -127,7 +91,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: OCLP-EFI-V720-14-Sequoia
-          path: oclp/OpenCore-Patcher/EFI/
+          path: oclp/EFI/
           retention-days: 7
 
       - name: Summary
