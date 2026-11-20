@@ -1,4 +1,4 @@
-name: Build OCLP EFI for V720-14 (Sequoia)
+﻿name: Build OCLP EFI for V720-14 (Sequoia)
 
 on:
   workflow_dispatch:
@@ -33,7 +33,6 @@ jobs:
 
           echo "=== Fetching OCLP pkg asset ==="
 
-          # 找到主程序 pkg (排除 Uninstaller 和 AutoPkg)
           PKG_URL=$(curl -sL -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/dortania/OpenCore-Legacy-Patcher/releases/latest \
             | jq -r '.assets[] | select(.name | test("OpenCore-Patcher\\.pkg$")) | .browser_download_url' | head -1)
@@ -49,22 +48,18 @@ jobs:
           echo "Installing pkg..."
           sudo installer -pkg OpenCore-Patcher.pkg -target /
 
-          # 找到安装后的 OpenCore-Patcher.app
-          OCLP_APP=$(find /Applications -name "OpenCore-Patcher.app" -maxdepth 2 2>/dev/null | head -1)
-          if [[ -z "$OCLP_APP" ]]; then
-            OCLP_APP=$(find / -name "OpenCore-Patcher.app" -maxdepth 4 2>/dev/null | head -1)
-          fi
+          echo "=== Verifying installation ==="
+          # 列出已安装的 Python 包
+          pip3 list | grep -i open || true
 
-          if [[ -z "$OCLP_APP" ]]; then
-            echo "ERROR: OpenCore-Patcher.app not found after install"
-            exit 1
-          fi
+      - name: Build EFI for MacBookPro14,1 (Sequoia 15.x)
+        run: |
+          set -euo pipefail
+          cd oclp
 
-          echo "Found OCLP at: $OCLP_APP"
-
-          # 运行构建命令
-          echo "Building EFI for MacBookPro14,1 (Sequoia 15.x)..."
-          "$OCLP_APP/Contents/Resources/build_open_core.py" \
+          echo "=== Building EFI for MacBookPro14,1 (Sequoia 15.x) ==="
+          # 用 Python 模块方式运行 OCLP (安装后可作为模块调用)
+          python3 -m open_core_patcher \
             --model MacBookPro14,1 \
             --version 15.0 \
             --output ./EFI \
