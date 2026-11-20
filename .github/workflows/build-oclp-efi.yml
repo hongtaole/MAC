@@ -66,24 +66,38 @@ jobs:
             exit 1
           fi
 
-          echo "Found build at: $BUILD_DIR"
+          echo "Found build dir from output: $BUILD_DIR"
 
-          # 先检查目录内容
-          echo "=== Build directory contents ==="
-          ls -la "$BUILD_DIR"
-
-          # 如果目录为空，尝试父目录
-          if [[ -z "$(ls -A "$BUILD_DIR")" ]]; then
-            echo "Build directory is empty, checking parent..."
-            PARENT_DIR=$(dirname "$BUILD_DIR")
-            echo "Parent directory contents:"
-            ls -la "$PARENT_DIR"
-            BUILD_DIR="$PARENT_DIR"
+          # 直接用 find 定位实际的 EFI 文件（不依赖目录是否存在）
+          echo "=== Searching for actual EFI files ==="
+          EFI_FILES=$(find /var/folders -path "*/Build-Folder/OpenCore-Build/*" -type f 2>/dev/null | head -20)
+          
+          if [[ -z "$EFI_FILES" ]]; then
+            echo "Trying broader search..."
+            EFI_FILES=$(find /var/folders -path "*/Build-Folder/*OpenCore*Build*/*" -type f 2>/dev/null | head -20)
           fi
+
+          if [[ -z "$EFI_FILES" ]]; then
+            echo "Trying even broader search..."
+            EFI_FILES=$(find /var/folders -name "OpenCore-Build" -type d 2>/dev/null -exec find {} -type f \; 2>/dev/null | head -20)
+          fi
+
+          if [[ -z "$EFI_FILES" ]]; then
+            echo "ERROR: No EFI files found"
+            find /var/folders -name "*OpenCore*Build*" -type f 2>/dev/null | head -20
+            exit 1
+          fi
+
+          echo "Found EFI files:"
+          echo "$EFI_FILES"
+
+          # 确定源目录（取第一个文件的目录）
+          SRC_DIR=$(dirname $(echo "$EFI_FILES" | head -1))
+          echo "Source directory: $SRC_DIR"
 
           # 复制到 ./EFI
           mkdir -p ./EFI
-          cp -R "$BUILD_DIR"/* ./EFI/
+          cp -R "$SRC_DIR"/* ./EFI/
 
           # 验证生成的 EFI
           echo "=== EFI directory structure ==="
