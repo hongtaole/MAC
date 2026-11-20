@@ -55,7 +55,7 @@ jobs:
 
           echo "$BUILD_OUTPUT"
 
-          # 从输出中提取构建路径（格式：/var/folders/.../Build-Folder/OpenCore-Build）
+          # 从输出中提取构建路径
           BUILD_DIR=$(echo "$BUILD_OUTPUT" | grep -oE "/var/folders/[^ ]+/Build-Folder/OpenCore-Build" | head -1)
 
           if [[ -z "$BUILD_DIR" ]]; then
@@ -69,6 +69,9 @@ jobs:
           fi
 
           echo "Found build at: $BUILD_DIR"
+
+          # 先创建目标目录，再复制
+          mkdir -p ./EFI
           cp -R "$BUILD_DIR"/* ./EFI/
 
           # 验证生成的 EFI
