@@ -45,10 +45,13 @@ jobs:
           echo "Found CLI at: $OCLP_CLI"
 
           echo "=== Building EFI for MacBookPro14,1 (Sequoia 15.x) ==="
+          # 先创建输出目录
+          mkdir -p ./EFI
+
+          # 运行 CLI，不指定 --disk（避免参数误解），让其输出到临时目录
           BUILD_OUTPUT=$("$OCLP_CLI" \
             --build \
             --model MacBookPro14,1 \
-            --disk ./EFI \
             --disable_sip \
             --verbose 2>&1)
 
@@ -68,36 +71,44 @@ jobs:
 
           echo "Found build dir from output: $BUILD_DIR"
 
-          # 直接用 find 定位实际的 EFI 文件（不依赖目录是否存在，不因 find 失败退出）
-          echo "=== Searching for actual EFI files ==="
-          EFI_FILES=$(find /var/folders -path "*/Build-Folder/OpenCore-Build/*" -type f 2>/dev/null | head -20 || true)
-          
-          if [[ -z "$EFI_FILES" ]]; then
-            echo "Trying broader search..."
-            EFI_FILES=$(find /var/folders -path "*/Build-Folder/*OpenCore*Build*/*" -type f 2>/dev/null | head -20 || true)
+          # 直接尝试从该路径复制（如果存在）
+          if [[ -d "$BUILD_DIR" ]]; then
+            echo "Build directory exists, copying..."
+            cp -R "$BUILD_DIR"/* ./EFI/
+          else
+            echo "Build directory not found at expected path, searching..."
+            # 从输出中提取父目录
+            TMP_DIR=$(echo "$BUILD_OUTPUT" | grep -oE "/var/folders/[^ ]+/T/tmp[^ ]+" | head -1)
+            if [[ -n "$TMP_DIR" && -d "$TMP_DIR" ]]; then
+              echo "Searching in temp dir: $TMP_DIR"
+              find "$TMP_DIR" -name "OpenCore-Build" -type d 2>/dev/null | while read dir; do
+                if [[ -d "$dir" && -n "$(ls -A "$dir")" ]]; then
+                  echo "Found non-empty build dir: $dir"
+                  cp -R "$dir"/* ./EFI/
+                  break
+                fi
+              done
+            fi
           fi
 
-          if [[ -z "$EFI_FILES" ]]; then
-            echo "Trying even broader search..."
-            EFI_FILES=$(find /var/folders -name "OpenCore-Build" -type d 2>/dev/null -exec find {} -type f \; 2>/dev/null | head -20 || true)
+          # 如果还没有文件，广泛搜索
+          if [[ ! -f ./EFI/OC/config.plist ]]; then
+            echo "Still no config.plist, searching all temp dirs..."
+            find /var/folders -name "OpenCore-Build" -type d 2>/dev/null | while read dir; do
+              if [[ -d "$dir" && -n "$(ls -A "$dir")" ]]; then
+                echo "Found non-empty build dir: $dir"
+                cp -R "$dir"/* ./EFI/
+                break
+              fi
+            done
           fi
 
-          if [[ -z "$EFI_FILES" ]]; then
-            echo "ERROR: No EFI files found"
-            find /var/folders -name "*OpenCore*Build*" -type f 2>/dev/null | head -20
+          # 最终验证
+          if [[ ! -f ./EFI/OC/config.plist ]]; then
+            echo "ERROR: Failed to locate EFI files"
+            find /var/folders -name "OpenCore-Build" -type d 2>/dev/null | head -10
             exit 1
           fi
-
-          echo "Found EFI files:"
-          echo "$EFI_FILES"
-
-          # 确定源目录（取第一个文件的目录）
-          SRC_DIR=$(dirname $(echo "$EFI_FILES" | head -1))
-          echo "Source directory: $SRC_DIR"
-
-          # 复制到 ./EFI
-          mkdir -p ./EFI
-          cp -R "$SRC_DIR"/* ./EFI/
 
           # 验证生成的 EFI
           echo "=== EFI directory structure ==="
