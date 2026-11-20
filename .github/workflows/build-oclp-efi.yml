@@ -39,7 +39,6 @@ jobs:
           OCLP_CLI="/Applications/OpenCore-Patcher.app/Contents/MacOS/OpenCore-Patcher"
           if [[ ! -x "$OCLP_CLI" ]]; then
             echo "ERROR: CLI not found at $OCLP_CLI"
-            find /Applications/OpenCore-Patcher.app -type f -perm +111 2>/dev/null | head -20
             exit 1
           fi
 
@@ -52,6 +51,18 @@ jobs:
             --disk ./EFI \
             --disable_sip \
             --verbose
+
+          # OCLP 输出在临时目录，需要找到并复制到 ./EFI
+          echo "=== Locating built EFI ==="
+          BUILD_DIR=$(find /var/folders -name "Build-Folder" -type d 2>/dev/null | grep -E "OpenCore-Build$" | head -1)
+          if [[ -n "$BUILD_DIR" ]]; then
+            echo "Found build at: $BUILD_DIR"
+            cp -R "$BUILD_DIR"/* ./EFI/
+          else
+            echo "ERROR: Build directory not found"
+            find /var/folders -name "OpenCore-Build" -type d 2>/dev/null | head -5
+            exit 1
+          fi
 
           # 验证生成的 EFI
           echo "=== EFI directory structure ==="
