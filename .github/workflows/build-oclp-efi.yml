@@ -29,52 +29,36 @@ jobs:
           curl -fL -o OpenCore-Patcher.pkg "$PKG_URL"
           sudo installer -pkg OpenCore-Patcher.pkg -target /
 
-      - name: Find OCLP module and build EFI
+      - name: Build EFI using OCLP CLI
         run: |
           set -euo pipefail
           cd oclp
 
-          echo "=== Locating OCLP Python module ==="
+          echo "=== Checking OCLP CLI availability ==="
 
-          OCLP_APP=$(find /Applications -name "OpenCore-Patcher.app" -maxdepth 2 2>/dev/null | head -1)
-          if [[ -z "$OCLP_APP" ]]; then
-            OCLP_APP=$(find / -name "OpenCore-Patcher.app" -maxdepth 4 2>/dev/null | head -1)
-          fi
-
-          if [[ -z "$OCLP_APP" ]]; then
-            echo "ERROR: OpenCore-Patcher.app not found"
-            exit 1
-          fi
-
-          echo "Found app at: $OCLP_APP"
-          echo "=== App bundle Python files ==="
-          find "$OCLP_APP" -name "*.py" | head -30
-
-          # 尝试多种可能的模块名/路径
-          MODULE_DIR=""
-          for pattern in "open_core_patcher" "open_core" "OpenCorePatcher" "open_core_patcher.py" "OpenCorePatcher.py"; do
-            MODULE_DIR=$(find "$OCLP_APP" -name "$pattern" -type d 2>/dev/null | head -1)
-            [[ -n "$MODULE_DIR" ]] && break
-            MODULE_DIR=$(find "$OCLP_APP" -name "$pattern" -type f 2>/dev/null | head -1 | xargs dirname 2>/dev/null)
-            [[ -n "$MODULE_DIR" ]] && break
+          # 尝试多种可能的 CLI 入口点
+          OCLP_CLI=""
+          for cli in \
+            "/Applications/OpenCore-Patcher.app/Contents/MacOS/OpenCore-Patcher" \
+            "/Applications/OpenCore-Patcher.app/Contents/MacOS/open-core-patcher" \
+            "/Applications/OpenCore-Patcher.app/Contents/Resources/open_core_patcher" \
+            "$(find /Applications/OpenCore-Patcher.app -name "*patcher*" -type f -perm +111 2>/dev/null | head -1)"; do
+            if [[ -x "$cli" ]]; then
+              OCLP_CLI="$cli"
+              break
+            fi
           done
 
-          if [[ -z "$MODULE_DIR" ]]; then
-            echo "ERROR: OCLP Python module not found"
-            find "$OCLP_APP" -name "*.py" | head -30
+          if [[ -z "$OCLP_CLI" ]]; then
+            echo "ERROR: No executable CLI found in OpenCore-Patcher.app"
+            find /Applications/OpenCore-Patcher.app -type f -perm +111 2>/dev/null | head -20
             exit 1
           fi
 
-          # 如果找到的是文件，取其目录
-          if [[ -f "$MODULE_DIR" ]]; then
-            MODULE_DIR=$(dirname "$MODULE_DIR")
-          fi
-
-          echo "Found module dir: $MODULE_DIR"
-          export PYTHONPATH="$MODULE_DIR:$PYTHONPATH"
+          echo "Found CLI at: $OCLP_CLI"
 
           echo "=== Building EFI for MacBookPro14,1 (Sequoia 15.x) ==="
-          python3 -m open_core_patcher \
+          "$OCLP_CLI" \
             --model MacBookPro14,1 \
             --version 15.0 \
             --output ./EFI \
