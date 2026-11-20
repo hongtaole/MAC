@@ -26,19 +26,27 @@ jobs:
 
           echo "=== Fetching OCLP pkg asset ==="
 
+          # 硬编码兜底 URL（2.5.1 版本）
+          FALLBACK_URL="https://github.com/dortania/OpenCore-Legacy-Patcher/releases/download/2.5.1/OpenCore-Patcher.pkg"
+
+          # 尝试从 API 获取（带重试）
           PKG_URL=""
           for i in 1 2 3; do
             echo "Fetching pkg URL attempt $i/3..."
-            PKG_URL=$(curl -sL -H "Accept: application/vnd.github.v3+json" \
-              https://api.github.com/repos/dortania/OpenCore-Legacy-Patcher/releases/latest \
-              | jq -r '.assets[] | select(.name | test("OpenCore-Patcher\\.pkg$")) | .browser_download_url' | head -1 2>/dev/null)
-            [[ -n "$PKG_URL" && "$PKG_URL" != "null" ]] && break
+            API_RESPONSE=$(curl -sL -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/repos/dortania/OpenCore-Legacy-Patcher/releases/latest 2>/dev/null)
+            
+            if [[ -n "$API_RESPONSE" && "$API_RESPONSE" != "null" ]]; then
+              PKG_URL=$(echo "$API_RESPONSE" | jq -r '.assets[] | select(.name | test("OpenCore-Patcher\\.pkg$")) | .browser_download_url' | head -1 2>/dev/null)
+              [[ -n "$PKG_URL" && "$PKG_URL" != "null" ]] && break
+            fi
+            echo "  API failed or returned null, retrying..."
             sleep 5
           done
 
           if [[ -z "$PKG_URL" || "$PKG_URL" == "null" ]]; then
-            echo "WARNING: API failed, using hardcoded fallback URL"
-            PKG_URL="https://github.com/dortania/OpenCore-Legacy-Patcher/releases/download/2.5.1/OpenCore-Patcher.pkg"
+            echo "WARNING: API failed after retries, using hardcoded fallback URL"
+            PKG_URL="$FALLBACK_URL"
           fi
 
           echo "Downloading: $PKG_URL"
@@ -54,7 +62,6 @@ jobs:
 
           echo "=== Locating OCLP Python module ==="
 
-          # 在 .app 包里查找 Python 模块
           OCLP_APP=$(find /Applications -name "OpenCore-Patcher.app" -maxdepth 2 2>/dev/null | head -1)
           if [[ -z "$OCLP_APP" ]]; then
             OCLP_APP=$(find / -name "OpenCore-Patcher.app" -maxdepth 4 2>/dev/null | head -1)
@@ -67,7 +74,6 @@ jobs:
 
           echo "Found app at: $OCLP_APP"
 
-          # 查找 Python 模块目录
           OCLP_MODULE=$(find "$OCLP_APP" -name "open_core_patcher" -type d 2>/dev/null | head -1)
           if [[ -z "$OCLP_MODULE" ]]; then
             OCLP_MODULE=$(find "$OCLP_APP" -name "*.py" -path "*/open_core_patcher/*" 2>/dev/null | head -1 | xargs dirname)
@@ -82,7 +88,6 @@ jobs:
           MODULE_DIR=$(dirname "$OCLP_MODULE")
           echo "Found module at: $MODULE_DIR"
 
-          # 添加到 PYTHONPATH
           export PYTHONPATH="$MODULE_DIR:$PYTHONPATH"
 
           echo "=== Building EFI for MacBookPro14,1 (Sequoia 15.x) ==="
