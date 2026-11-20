@@ -36,21 +36,9 @@ jobs:
 
           echo "=== Checking OCLP CLI availability ==="
 
-          # 尝试多种可能的 CLI 入口点
-          OCLP_CLI=""
-          for cli in \
-            "/Applications/OpenCore-Patcher.app/Contents/MacOS/OpenCore-Patcher" \
-            "/Applications/OpenCore-Patcher.app/Contents/MacOS/open-core-patcher" \
-            "/Applications/OpenCore-Patcher.app/Contents/Resources/open_core_patcher" \
-            "$(find /Applications/OpenCore-Patcher.app -name "*patcher*" -type f -perm +111 2>/dev/null | head -1)"; do
-            if [[ -x "$cli" ]]; then
-              OCLP_CLI="$cli"
-              break
-            fi
-          done
-
-          if [[ -z "$OCLP_CLI" ]]; then
-            echo "ERROR: No executable CLI found in OpenCore-Patcher.app"
+          OCLP_CLI="/Applications/OpenCore-Patcher.app/Contents/MacOS/OpenCore-Patcher"
+          if [[ ! -x "$OCLP_CLI" ]]; then
+            echo "ERROR: CLI not found at $OCLP_CLI"
             find /Applications/OpenCore-Patcher.app -type f -perm +111 2>/dev/null | head -20
             exit 1
           fi
@@ -59,10 +47,11 @@ jobs:
 
           echo "=== Building EFI for MacBookPro14,1 (Sequoia 15.x) ==="
           "$OCLP_CLI" \
+            --build \
             --model MacBookPro14,1 \
-            --version 15.0 \
-            --output ./EFI \
-            --no-gui
+            --disk ./EFI \
+            --disable_sip \
+            --verbose
 
           # 验证生成的 EFI
           echo "=== EFI directory structure ==="
