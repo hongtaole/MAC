@@ -45,7 +45,6 @@ jobs:
           echo "Found CLI at: $OCLP_CLI"
 
           echo "=== Building EFI for MacBookPro14,1 (Sequoia 15.x) ==="
-          # 捕获 CLI 输出以提取构建路径
           BUILD_OUTPUT=$("$OCLP_CLI" \
             --build \
             --model MacBookPro14,1 \
@@ -59,7 +58,6 @@ jobs:
           BUILD_DIR=$(echo "$BUILD_OUTPUT" | grep -oE "/var/folders/[^ ]+/Build-Folder/OpenCore-Build" | head -1)
 
           if [[ -z "$BUILD_DIR" ]]; then
-            echo "Trying alternative extraction..."
             BUILD_DIR=$(echo "$BUILD_OUTPUT" | grep -oE "/var/folders/[^ ]+/Build-Folder/[^ ]+" | head -1)
           fi
 
@@ -70,7 +68,20 @@ jobs:
 
           echo "Found build at: $BUILD_DIR"
 
-          # 先创建目标目录，再复制
+          # 先检查目录内容
+          echo "=== Build directory contents ==="
+          ls -la "$BUILD_DIR"
+
+          # 如果目录为空，尝试父目录
+          if [[ -z "$(ls -A "$BUILD_DIR")" ]]; then
+            echo "Build directory is empty, checking parent..."
+            PARENT_DIR=$(dirname "$BUILD_DIR")
+            echo "Parent directory contents:"
+            ls -la "$PARENT_DIR"
+            BUILD_DIR="$PARENT_DIR"
+          fi
+
+          # 复制到 ./EFI
           mkdir -p ./EFI
           cp -R "$BUILD_DIR"/* ./EFI/
 
