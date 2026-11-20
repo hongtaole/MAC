@@ -18,22 +18,18 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Download and install OCLP pkg (hardcoded reliable URL)
+      - name: Download and install OCLP pkg
         run: |
           set -euo pipefail
           mkdir -p oclp
           cd oclp
 
-          # 硬编码已验证可用的 2.5.1 pkg URL
           PKG_URL="https://github.com/dortania/OpenCore-Legacy-Patcher/releases/download/2.5.1/OpenCore-Patcher.pkg"
-
           echo "Downloading: $PKG_URL"
           curl -fL -o OpenCore-Patcher.pkg "$PKG_URL"
-
-          echo "Installing pkg..."
           sudo installer -pkg OpenCore-Patcher.pkg -target /
 
-      - name: Find OCLP Python module and build EFI
+      - name: Find OCLP module and build EFI
         run: |
           set -euo pipefail
           cd oclp
@@ -51,21 +47,30 @@ jobs:
           fi
 
           echo "Found app at: $OCLP_APP"
+          echo "=== App bundle Python files ==="
+          find "$OCLP_APP" -name "*.py" | head -30
 
-          OCLP_MODULE=$(find "$OCLP_APP" -name "open_core_patcher" -type d 2>/dev/null | head -1)
-          if [[ -z "$OCLP_MODULE" ]]; then
-            OCLP_MODULE=$(find "$OCLP_APP" -name "*.py" -path "*/open_core_patcher/*" 2>/dev/null | head -1 | xargs dirname)
-          fi
+          # 尝试多种可能的模块名/路径
+          MODULE_DIR=""
+          for pattern in "open_core_patcher" "open_core" "OpenCorePatcher" "open_core_patcher.py" "OpenCorePatcher.py"; do
+            MODULE_DIR=$(find "$OCLP_APP" -name "$pattern" -type d 2>/dev/null | head -1)
+            [[ -n "$MODULE_DIR" ]] && break
+            MODULE_DIR=$(find "$OCLP_APP" -name "$pattern" -type f 2>/dev/null | head -1 | xargs dirname 2>/dev/null)
+            [[ -n "$MODULE_DIR" ]] && break
+          done
 
-          if [[ -z "$OCLP_MODULE" ]]; then
-            echo "ERROR: open_core_patcher module not found in app bundle"
-            find "$OCLP_APP" -name "*.py" | head -20
+          if [[ -z "$MODULE_DIR" ]]; then
+            echo "ERROR: OCLP Python module not found"
+            find "$OCLP_APP" -name "*.py" | head -30
             exit 1
           fi
 
-          MODULE_DIR=$(dirname "$OCLP_MODULE")
-          echo "Found module at: $MODULE_DIR"
+          # 如果找到的是文件，取其目录
+          if [[ -f "$MODULE_DIR" ]]; then
+            MODULE_DIR=$(dirname "$MODULE_DIR")
+          fi
 
+          echo "Found module dir: $MODULE_DIR"
           export PYTHONPATH="$MODULE_DIR:$PYTHONPATH"
 
           echo "=== Building EFI for MacBookPro14,1 (Sequoia 15.x) ==="
