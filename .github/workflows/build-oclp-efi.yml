@@ -18,13 +18,6 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Debug - List all release assets
-        run: |
-          echo "=== Full API response ==="
-          curl -sL -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/dortania/OpenCore-Legacy-Patcher/releases/latest \
-            | jq '.assets[] | {name: .name, url: .browser_download_url}'
-
       - name: Download and install OCLP pkg
         run: |
           set -euo pipefail
@@ -33,13 +26,20 @@ jobs:
 
           echo "=== Fetching OCLP pkg asset ==="
 
-          PKG_URL=$(curl -sL -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/dortania/OpenCore-Legacy-Patcher/releases/latest \
-            | jq -r '.assets[] | select(.name | test("OpenCore-Patcher\\.pkg$")) | .browser_download_url' | head -1)
+          # 带重试获取 pkg URL
+          PKG_URL=""
+          for i in 1 2 3; do
+            echo "Fetching pkg URL attempt $i/3..."
+            PKG_URL=$(curl -sL -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/repos/dortania/OpenCore-Legacy-Patcher/releases/latest \
+              | jq -r '.assets[] | select(.name | test("OpenCore-Patcher\\.pkg$")) | .browser_download_url' | head -1 2>/dev/null)
+            [[ -n "$PKG_URL" && "$PKG_URL" != "null" ]] && break
+            sleep 5
+          done
 
-          if [[ -z "$PKG_URL" ]]; then
-            echo "ERROR: OpenCore-Patcher.pkg not found"
-            exit 1
+          if [[ -z "$PKG_URL" || "$PKG_URL" == "null" ]]; then
+            echo "WARNING: API failed, using hardcoded fallback URL"
+            PKG_URL="https://github.com/dortania/OpenCore-Legacy-Patcher/releases/download/2.5.1/OpenCore-Patcher.pkg"
           fi
 
           echo "Downloading: $PKG_URL"
@@ -48,17 +48,12 @@ jobs:
           echo "Installing pkg..."
           sudo installer -pkg OpenCore-Patcher.pkg -target /
 
-          echo "=== Verifying installation ==="
-          # 列出已安装的 Python 包
-          pip3 list | grep -i open || true
-
       - name: Build EFI for MacBookPro14,1 (Sequoia 15.x)
         run: |
           set -euo pipefail
           cd oclp
 
           echo "=== Building EFI for MacBookPro14,1 (Sequoia 15.x) ==="
-          # 用 Python 模块方式运行 OCLP (安装后可作为模块调用)
           python3 -m open_core_patcher \
             --model MacBookPro14,1 \
             --version 15.0 \
