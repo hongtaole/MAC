@@ -26,7 +26,6 @@ jobs:
 
           echo "=== Fetching OCLP pkg asset ==="
 
-          # 带重试获取 pkg URL
           PKG_URL=""
           for i in 1 2 3; do
             echo "Fetching pkg URL attempt $i/3..."
@@ -48,10 +47,43 @@ jobs:
           echo "Installing pkg..."
           sudo installer -pkg OpenCore-Patcher.pkg -target /
 
-      - name: Build EFI for MacBookPro14,1 (Sequoia 15.x)
+      - name: Find OCLP Python module and build EFI
         run: |
           set -euo pipefail
           cd oclp
+
+          echo "=== Locating OCLP Python module ==="
+
+          # 在 .app 包里查找 Python 模块
+          OCLP_APP=$(find /Applications -name "OpenCore-Patcher.app" -maxdepth 2 2>/dev/null | head -1)
+          if [[ -z "$OCLP_APP" ]]; then
+            OCLP_APP=$(find / -name "OpenCore-Patcher.app" -maxdepth 4 2>/dev/null | head -1)
+          fi
+
+          if [[ -z "$OCLP_APP" ]]; then
+            echo "ERROR: OpenCore-Patcher.app not found"
+            exit 1
+          fi
+
+          echo "Found app at: $OCLP_APP"
+
+          # 查找 Python 模块目录
+          OCLP_MODULE=$(find "$OCLP_APP" -name "open_core_patcher" -type d 2>/dev/null | head -1)
+          if [[ -z "$OCLP_MODULE" ]]; then
+            OCLP_MODULE=$(find "$OCLP_APP" -name "*.py" -path "*/open_core_patcher/*" 2>/dev/null | head -1 | xargs dirname)
+          fi
+
+          if [[ -z "$OCLP_MODULE" ]]; then
+            echo "ERROR: open_core_patcher module not found in app bundle"
+            find "$OCLP_APP" -name "*.py" | head -20
+            exit 1
+          fi
+
+          MODULE_DIR=$(dirname "$OCLP_MODULE")
+          echo "Found module at: $MODULE_DIR"
+
+          # 添加到 PYTHONPATH
+          export PYTHONPATH="$MODULE_DIR:$PYTHONPATH"
 
           echo "=== Building EFI for MacBookPro14,1 (Sequoia 15.x) ==="
           python3 -m open_core_patcher \
