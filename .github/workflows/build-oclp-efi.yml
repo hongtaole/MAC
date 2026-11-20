@@ -18,57 +18,53 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Download OCLP release asset (never fail on parse)
+      - name: Download OCLP release asset (try all zip assets)
         run: |
           set -euo pipefail
           mkdir -p oclp
           cd oclp
 
-          echo "=== Fetching latest OCLP release info ==="
+          echo "=== Fetching all zip assets from latest release ==="
 
-          # 1. 尝试 jq
-          ASSET_URL=$(curl -sL -H "Accept: application/vnd.github.v3+json" \
+          # 用 jq 获取所有 .zip asset 的下载 URL 数组
+          ASSET_URLS=$(curl -sL -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/dortania/OpenCore-Legacy-Patcher/releases/latest \
-            | jq -r '.assets[] | select(.name | endswith(".zip")) | .browser_download_url' | head -1 2>/dev/null || echo "")
+            | jq -r '.assets[] | select(.name | endswith(".zip")) | .browser_download_url' 2>/dev/null)
 
-          # 2. jq 失败尝试 grep（不退出）
-          if [[ -z "$ASSET_URL" || "$ASSET_URL" == "null" ]]; then
-            echo "jq parse failed, trying grep/sed..."
-            ASSET_URL=$(curl -sL -H "Accept: application/vnd.github.v3+json" \
-              https://api.github.com/repos/dortania/OpenCore-Legacy-Patcher/releases/latest \
-              | grep -o '"browser_download_url"[[:space:]]*:[[:space:]]*"[^"]*\.zip"' \
-              | head -1 \
-              | sed -E 's/.*"([^"]+)".*/\1/' 2>/dev/null || echo "")
+          if [[ -z "$ASSET_URLS" ]]; then
+            echo "ERROR: No zip assets found in latest release"
+            exit 1
           fi
 
-          # 3. 仍为空用硬编码兜底
-          if [[ -z "$ASSET_URL" || "$ASSET_URL" == "null" ]]; then
-            echo "WARNING: API parse failed, using hardcoded fallback URL"
-            ASSET_URL="https://github.com/dortania/OpenCore-Legacy-Patcher/releases/download/2.5.1/OpenCore-Patcher-2.5.1.zip"
-          fi
+          echo "Found zip assets:"
+          echo "$ASSET_URLS"
 
-          echo "Resolved download URL: $ASSET_URL"
-
-          # 下载，最多重试 3 次
-          for i in 1 2 3; do
-            echo "Attempt $i/3..."
-            if curl -fL --retry 2 --retry-delay 5 -o OCLP.zip "$ASSET_URL"; then
-              SIZE=$(stat -c%s OCLP.zip 2>/dev/null || stat -f%z OCLP.zip)
-              if [[ $SIZE -gt 1000000 ]]; then
-                echo "Download OK ($SIZE bytes)"
-                break
+          # 逐个尝试下载，直到成功
+          DOWNLOAD_OK=false
+          while IFS= read -r URL; do
+            [[ -z "$URL" ]] && continue
+            echo "Trying: $URL"
+            for i in 1 2 3; do
+              echo "  Attempt $i/3..."
+              if curl -fL --retry 2 --retry-delay 5 -o OCLP.zip "$URL"; then
+                SIZE=$(stat -c%s OCLP.zip 2>/dev/null || stat -f%z OCLP.zip)
+                if [[ $SIZE -gt 1000000 ]]; then
+                  echo "  Download OK ($SIZE bytes)"
+                  DOWNLOAD_OK=true
+                  break 2
+                else
+                  echo "  File too small ($SIZE bytes), retrying..."
+                  rm -f OCLP.zip
+                fi
               else
-                echo "File too small ($SIZE bytes), retrying..."
-                rm -f OCLP.zip
+                echo "  curl failed, retrying..."
               fi
-            else
-              echo "curl failed, retrying..."
-            fi
-            sleep 5
-          done
+              sleep 5
+            done
+          done <<< "$ASSET_URLS"
 
-          if [[ ! -f OCLP.zip ]]; then
-            echo "All download attempts failed"
+          if [[ "$DOWNLOAD_OK" != "true" ]]; then
+            echo "All assets failed to download"
             exit 1
           fi
 
