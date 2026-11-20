@@ -18,27 +18,36 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Download OCLP release asset (via API)
+      - name: Download OCLP release asset (robust)
         run: |
           set -euo pipefail
           mkdir -p oclp
           cd oclp
 
-          echo "Fetching latest OCLP release asset URL..."
-          # 从 API 获取最新 release 的 assets 列表，找到 .zip 文件的 browser_download_url
+          echo "=== Fetching latest OCLP release info ==="
+          
+          # 先尝试用 jq 解析（macOS runner 预装 jq）
           ASSET_URL=$(curl -sL -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/dortania/OpenCore-Legacy-Patcher/releases/latest \
-            | grep '"browser_download_url":' \
-            | grep '\.zip"' \
-            | head -1 \
-            | sed -E 's/.*"([^"]+)".*/\1/')
+            | jq -r '.assets[] | select(.name | endswith(".zip")) | .browser_download_url' | head -1)
 
-          if [[ -z "$ASSET_URL" ]]; then
-            echo "ERROR: No .zip asset found in latest release"
-            exit 1
+          # jq 失败时回退到 grep/sed
+          if [[ -z "$ASSET_URL" || "$ASSET_URL" == "null" ]]; then
+            echo "jq parse failed, trying grep/sed..."
+            ASSET_URL=$(curl -sL -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/repos/dortania/OpenCore-Legacy-Patcher/releases/latest \
+              | grep -o '"browser_download_url"[[:space:]]*:[[:space:]]*"[^"]*\.zip"' \
+              | head -1 \
+              | sed -E 's/.*"([^"]+)".*/\1/')
           fi
 
-          echo "Downloading from: $ASSET_URL"
+          # 仍为空则用硬编码兜底（2.5.1 版本的已知直链）
+          if [[ -z "$ASSET_URL" || "$ASSET_URL" == "null" ]]; then
+            echo "WARNING: API parse failed, using hardcoded fallback URL"
+            ASSET_URL="https://github.com/dortania/OpenCore-Legacy-Patcher/releases/download/2.5.1/OpenCore-Patcher-2.5.1.zip"
+          fi
+
+          echo "Resolved download URL: $ASSET_URL"
 
           # 下载，最多重试 3 次
           for i in 1 2 3; do
