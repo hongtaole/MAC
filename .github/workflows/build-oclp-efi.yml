@@ -18,37 +18,32 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Download OCLP latest release (with retry & verify)
+      - name: Download OCLP release asset (via API)
         run: |
           set -euo pipefail
           mkdir -p oclp
           cd oclp
 
-          # 硬编码兜底版本（2024-11 当前最新稳定版）
-          FALLBACK_VERSION="2.5.1"
-
-          # 尝试从 GitHub API 获取最新版本
-          echo "Fetching latest OCLP version..."
-          LATEST=$(curl -sL -H "Accept: application/vnd.github.v3+json" \
+          echo "Fetching latest OCLP release asset URL..."
+          # 从 API 获取最新 release 的 assets 列表，找到 .zip 文件的 browser_download_url
+          ASSET_URL=$(curl -sL -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/dortania/OpenCore-Legacy-Patcher/releases/latest \
-            | grep '"tag_name":' | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+            | grep '"browser_download_url":' \
+            | grep '\.zip"' \
+            | head -1 \
+            | sed -E 's/.*"([^"]+)".*/\1/')
 
-          if [[ -z "$LATEST" || "$LATEST" == "null" ]]; then
-            echo "WARNING: API fetch failed, using fallback version $FALLBACK_VERSION"
-            LATEST="$FALLBACK_VERSION"
-          else
-            echo "Got version from API: $LATEST"
+          if [[ -z "$ASSET_URL" ]]; then
+            echo "ERROR: No .zip asset found in latest release"
+            exit 1
           fi
 
-          echo "Target version: $LATEST"
+          echo "Downloading from: $ASSET_URL"
 
-          URL="https://github.com/dortania/OpenCore-Legacy-Patcher/releases/download/${LATEST}/OpenCore-Patcher.zip"
-          echo "Downloading from: $URL"
-
-          # 最多重试 3 次
+          # 下载，最多重试 3 次
           for i in 1 2 3; do
             echo "Attempt $i/3..."
-            if curl -fL --retry 2 --retry-delay 5 -o OCLP.zip "$URL"; then
+            if curl -fL --retry 2 --retry-delay 5 -o OCLP.zip "$ASSET_URL"; then
               SIZE=$(stat -c%s OCLP.zip 2>/dev/null || stat -f%z OCLP.zip)
               if [[ $SIZE -gt 1000000 ]]; then
                 echo "Download OK ($SIZE bytes)"
