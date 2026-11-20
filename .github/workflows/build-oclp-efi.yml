@@ -68,18 +68,18 @@ jobs:
 
           echo "Found build dir from output: $BUILD_DIR"
 
-          # 直接用 find 定位实际的 EFI 文件（不依赖目录是否存在）
+          # 直接用 find 定位实际的 EFI 文件（不依赖目录是否存在，不因 find 失败退出）
           echo "=== Searching for actual EFI files ==="
-          EFI_FILES=$(find /var/folders -path "*/Build-Folder/OpenCore-Build/*" -type f 2>/dev/null | head -20)
+          EFI_FILES=$(find /var/folders -path "*/Build-Folder/OpenCore-Build/*" -type f 2>/dev/null | head -20 || true)
           
           if [[ -z "$EFI_FILES" ]]; then
             echo "Trying broader search..."
-            EFI_FILES=$(find /var/folders -path "*/Build-Folder/*OpenCore*Build*/*" -type f 2>/dev/null | head -20)
+            EFI_FILES=$(find /var/folders -path "*/Build-Folder/*OpenCore*Build*/*" -type f 2>/dev/null | head -20 || true)
           fi
 
           if [[ -z "$EFI_FILES" ]]; then
             echo "Trying even broader search..."
-            EFI_FILES=$(find /var/folders -name "OpenCore-Build" -type d 2>/dev/null -exec find {} -type f \; 2>/dev/null | head -20)
+            EFI_FILES=$(find /var/folders -name "OpenCore-Build" -type d 2>/dev/null -exec find {} -type f \; 2>/dev/null | head -20 || true)
           fi
 
           if [[ -z "$EFI_FILES" ]]; then
