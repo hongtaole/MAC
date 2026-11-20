@@ -33,7 +33,6 @@ jobs:
 
           echo "=== Fetching all archive assets from latest release ==="
 
-          # 更宽泛的匹配：.zip, .tar.gz, .tar.xz, .dmg, .pkg 等
           ASSET_URLS=$(curl -sL -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/dortania/OpenCore-Legacy-Patcher/releases/latest \
             | jq -r '.assets[] | select(.name | test("\\.(zip|tar\\.gz|tar\\.xz|dmg|pkg)$")) | .browser_download_url' 2>/dev/null)
