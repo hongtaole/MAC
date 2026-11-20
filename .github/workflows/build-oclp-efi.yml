@@ -18,28 +18,41 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Download OCLP release asset (try all zip assets)
+      - name: Debug: List all release assets
+        run: |
+          echo "=== Full API response ==="
+          curl -sL -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/dortania/OpenCore-Legacy-Patcher/releases/latest \
+            | jq '.assets[] | {name: .name, url: .browser_download_url}'
+
+      - name: Download OCLP release asset (try all archive assets)
         run: |
           set -euo pipefail
           mkdir -p oclp
           cd oclp
 
-          echo "=== Fetching all zip assets from latest release ==="
+          echo "=== Fetching all archive assets from latest release ==="
 
-          # 用 jq 获取所有 .zip asset 的下载 URL 数组
+          # 更宽泛的匹配：.zip, .tar.gz, .tar.xz, .dmg, .pkg 等
           ASSET_URLS=$(curl -sL -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/dortania/OpenCore-Legacy-Patcher/releases/latest \
-            | jq -r '.assets[] | select(.name | endswith(".zip")) | .browser_download_url' 2>/dev/null)
+            | jq -r '.assets[] | select(.name | test("\\.(zip|tar\\.gz|tar\\.xz|dmg|pkg)$")) | .browser_download_url' 2>/dev/null)
 
           if [[ -z "$ASSET_URLS" ]]; then
-            echo "ERROR: No zip assets found in latest release"
+            echo "WARNING: No archive assets found, trying all assets..."
+            ASSET_URLS=$(curl -sL -H "Accept: application/vnd.github.v3+json" \
+              https://api.github.com/repos/dortania/OpenCore-Legacy-Patcher/releases/latest \
+              | jq -r '.assets[] | .browser_download_url' 2>/dev/null)
+          fi
+
+          if [[ -z "$ASSET_URLS" ]]; then
+            echo "ERROR: No assets found in latest release"
             exit 1
           fi
 
-          echo "Found zip assets:"
+          echo "Found assets:"
           echo "$ASSET_URLS"
 
-          # 逐个尝试下载，直到成功
           DOWNLOAD_OK=false
           while IFS= read -r URL; do
             [[ -z "$URL" ]] && continue
