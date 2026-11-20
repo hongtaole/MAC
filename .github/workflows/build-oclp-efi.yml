@@ -52,17 +52,21 @@ jobs:
             --disable_sip \
             --verbose
 
-          # OCLP 输出在临时目录，需要找到并复制到 ./EFI
+          # 从日志输出中提取实际构建路径
           echo "=== Locating built EFI ==="
-          BUILD_DIR=$(find /var/folders -name "Build-Folder" -type d 2>/dev/null | grep -E "OpenCore-Build$" | head -1)
-          if [[ -n "$BUILD_DIR" ]]; then
-            echo "Found build at: $BUILD_DIR"
-            cp -R "$BUILD_DIR"/* ./EFI/
-          else
+          BUILD_DIR=$(find /var/folders -path "*Build-Folder*OpenCore-Build" -type d 2>/dev/null | head -1)
+          if [[ -z "$BUILD_DIR" ]]; then
+            BUILD_DIR=$(find /var/folders -name "OpenCore-Build" -type d 2>/dev/null | head -1)
+          fi
+
+          if [[ -z "$BUILD_DIR" ]]; then
             echo "ERROR: Build directory not found"
-            find /var/folders -name "OpenCore-Build" -type d 2>/dev/null | head -5
+            find /var/folders -name "*OpenCore*Build*" -type d 2>/dev/null | head -10
             exit 1
           fi
+
+          echo "Found build at: $BUILD_DIR"
+          cp -R "$BUILD_DIR"/* ./EFI/
 
           # 验证生成的 EFI
           echo "=== EFI directory structure ==="
