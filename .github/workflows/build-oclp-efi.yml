@@ -45,30 +45,26 @@ jobs:
           echo "Found CLI at: $OCLP_CLI"
 
           echo "=== Building EFI for MacBookPro14,1 (Sequoia 15.x) ==="
-          "$OCLP_CLI" \
+          # 捕获 CLI 输出以提取构建路径
+          BUILD_OUTPUT=$("$OCLP_CLI" \
             --build \
             --model MacBookPro14,1 \
             --disk ./EFI \
             --disable_sip \
-            --verbose
+            --verbose 2>&1)
 
-          # 直接用已知的路径模式查找
-          echo "=== Locating built EFI ==="
-          BUILD_DIR=$(find /var/folders -path "*/Build-Folder/OpenCore-Build" -type d 2>/dev/null | head -1)
+          echo "$BUILD_OUTPUT"
+
+          # 从输出中提取构建路径（格式：/var/folders/.../Build-Folder/OpenCore-Build）
+          BUILD_DIR=$(echo "$BUILD_OUTPUT" | grep -oE "/var/folders/[^ ]+/Build-Folder/OpenCore-Build" | head -1)
 
           if [[ -z "$BUILD_DIR" ]]; then
-            echo "Trying alternative pattern..."
-            BUILD_DIR=$(find /var/folders -path "*/Build-Folder/*OpenCore*Build*" -type d 2>/dev/null | head -1)
+            echo "Trying alternative extraction..."
+            BUILD_DIR=$(echo "$BUILD_OUTPUT" | grep -oE "/var/folders/[^ ]+/Build-Folder/[^ ]+" | head -1)
           fi
 
           if [[ -z "$BUILD_DIR" ]]; then
-            echo "Trying broader search..."
-            BUILD_DIR=$(find /var/folders -name "OpenCore-Build" -type d 2>/dev/null | head -1)
-          fi
-
-          if [[ -z "$BUILD_DIR" ]]; then
-            echo "ERROR: Build directory not found"
-            find /var/folders -name "*OpenCore*Build*" -type d 2>/dev/null | head -10
+            echo "ERROR: Could not extract build directory from output"
             exit 1
           fi
 
