@@ -1,4 +1,4 @@
-﻿name: Build OCLP EFI for V720-14 (Sequoia)
+name: Build OCLP EFI for V720-14 (Sequoia)
 
 on:
   workflow_dispatch:
@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Debug: List all release assets
+      - name: Debug - List all release assets
         run: |
           echo "=== Full API response ==="
           curl -sL -H "Accept: application/vnd.github.v3+json" \
