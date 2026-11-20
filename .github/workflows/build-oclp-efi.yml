@@ -1,4 +1,4 @@
-name: Build OCLP EFI for V720-14 (Sequoia)
+﻿name: Build OCLP EFI for V720-14 (Sequoia)
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ jobs:
   build-efi:
     name: Build OpenCore Legacy Patcher EFI
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Checkout repository
@@ -16,15 +16,63 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
-      - name: Download OCLP latest release
+      - name: Download OCLP latest release (with retry & verify)
         run: |
+          set -euo pipefail
           mkdir -p oclp
           cd oclp
-          LATEST=$(curl -s https://api.github.com/repos/dortania/OpenCore-Legacy-Patcher/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-          echo "Latest OCLP version: $LATEST"
-          curl -L -o OCLP.zip "https://github.com/dortania/OpenCore-Legacy-Patcher/releases/download/${LATEST}/OpenCore-Patcher.zip"
+
+          # 硬编码兜底版本（2024-11 当前最新稳定版）
+          FALLBACK_VERSION="2.5.1"
+
+          # 尝试从 GitHub API 获取最新版本
+          echo "Fetching latest OCLP version..."
+          LATEST=$(curl -sL -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/dortania/OpenCore-Legacy-Patcher/releases/latest \
+            | grep '"tag_name":' | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+
+          if [[ -z "$LATEST" || "$LATEST" == "null" ]]; then
+            echo "WARNING: API fetch failed, using fallback version $FALLBACK_VERSION"
+            LATEST="$FALLBACK_VERSION"
+          else
+            echo "Got version from API: $LATEST"
+          fi
+
+          echo "Target version: $LATEST"
+
+          URL="https://github.com/dortania/OpenCore-Legacy-Patcher/releases/download/${LATEST}/OpenCore-Patcher.zip"
+          echo "Downloading from: $URL"
+
+          # 最多重试 3 次
+          for i in 1 2 3; do
+            echo "Attempt $i/3..."
+            if curl -fL --retry 2 --retry-delay 5 -o OCLP.zip "$URL"; then
+              SIZE=$(stat -c%s OCLP.zip 2>/dev/null || stat -f%z OCLP.zip)
+              if [[ $SIZE -gt 1000000 ]]; then
+                echo "Download OK ($SIZE bytes)"
+                break
+              else
+                echo "File too small ($SIZE bytes), retrying..."
+                rm -f OCLP.zip
+              fi
+            else
+              echo "curl failed, retrying..."
+            fi
+            sleep 5
+          done
+
+          if [[ ! -f OCLP.zip ]]; then
+            echo "All download attempts failed"
+            exit 1
+          fi
+
+          if ! unzip -t OCLP.zip >/dev/null 2>&1; then
+            echo "Zip integrity check failed"
+            exit 1
+          fi
+
           unzip -q OCLP.zip
           ls -la
 
@@ -37,6 +85,7 @@ jobs:
       - name: Build EFI for MacBookPro14,1 (Sequoia 15.x)
         run: |
           cd oclp/OpenCore-Patcher
+          python3 build_open_core.py --help || true
           python3 build_open_core.py \
             --model MacBookPro14,1 \
             --version 15.0 \
@@ -46,20 +95,20 @@ jobs:
       - name: Verify EFI structure
         run: |
           cd oclp/OpenCore-Patcher
-          echo "=== EFI 目录结构 ==="
+          echo "=== EFI directory structure ==="
           find EFI -type f | head -30
           echo ""
-          echo "=== 关键文件检查 ==="
-          test -f EFI/OC/config.plist && echo "✅ config.plist 存在" || echo "❌ config.plist 缺失"
-          test -f EFI/OC/OpenCore.efi && echo "✅ OpenCore.efi 存在" || echo "❌ OpenCore.efi 缺失"
-          test -d EFI/OC/Kexts && echo "✅ Kexts 目录存在" || echo "❌ Kexts 目录缺失"
-          test -d EFI/OC/ACPI && echo "✅ ACPI 目录存在" || echo "❌ ACPI 目录缺失"
-          test -d EFI/OC/Drivers && echo "✅ Drivers 目录存在" || echo "❌ Drivers 目录缺失"
+          echo "=== Key files check ==="
+          test -f EFI/OC/config.plist && echo "config.plist OK" || echo "config.plist MISSING"
+          test -f EFI/OC/OpenCore.efi && echo "OpenCore.efi OK" || echo "OpenCore.efi MISSING"
+          test -d EFI/OC/Kexts && echo "Kexts dir OK" || echo "Kexts dir MISSING"
+          test -d EFI/OC/ACPI && echo "ACPI dir OK" || echo "ACPI dir MISSING"
+          test -d EFI/OC/Drivers && echo "Drivers dir OK" || echo "Drivers dir MISSING"
           if grep -q "<key>Patch</key>" EFI/OC/config.plist; then
             PATCH_COUNT=$(grep -A 100 "<key>Patch</key>" EFI/OC/config.plist | grep -c "<dict>")
-            echo "✅ Kernel -> Patch 存在 ($PATCH_COUNT 个补丁条目)"
+            echo "Kernel -> Patch OK ($PATCH_COUNT entries)"
           else
-            echo "❌ Kernel -> Patch 缺失"
+            echo "Kernel -> Patch MISSING"
           fi
 
       - name: Upload EFI as artifact
@@ -71,17 +120,8 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## 🎉 OCLP EFI 构建完成" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **机型**: MacBookPro14,1 (Kaby Lake i7-7500U)" >> $GITHUB_STEP_SUMMARY
-          echo "- **目标系统**: macOS 15 Sequoia" >> $GITHUB_STEP_SUMMARY
-          echo "- **Artifact**: \`OCLP-EFI-V720-14-Sequoia\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 下一步" >> $GITHUB_STEP_SUMMARY
-          echo "1. 下载 Artifact 解压得到 \`EFI\` 文件夹" >> $GITHUB_STEP_SUMMARY
-          echo "2. 编译并放入 5 个 SSDT (.aml) 到 \`EFI/OC/ACPI/\`" >> $GITHUB_STEP_SUMMARY
-          echo "3. 用 ProperTree 合并关键配置 (IGPU 注入、声卡 layout-id、三码等)" >> $GITHUB_STEP_SUMMARY
-          echo "4. 填入自己生成的三码 (MLB, SystemSerialNumber, SystemUUID)" >> $GITHUB_STEP_SUMMARY
-          echo "5. 制作安装盘, 复制 EFI 到 U 盘 EFI 分区" >> $GITHUB_STEP_SUMMARY
-          echo "6. 安装后**必须**进 U 盘跑 OCLP Root Patch" >> $GITHUB_STEP_SUMMARY
-          echo "7. 进系统后用 USBToolBox 导出 USBMap.kext 替换 USBInjectAll" >> $GITHUB_STEP_SUMMARY
+          echo "## OCLP EFI Build Complete" >> $env:GITHUB_STEP_SUMMARY
+          echo "" >> $env:GITHUB_STEP_SUMMARY
+          echo "- Model: MacBookPro14,1 (Kaby Lake i7-7500U)" >> $env:GITHUB_STEP_SUMMARY
+          echo "- Target: macOS 15 Sequoia" >> $env:GITHUB_STEP_SUMMARY
+          echo "- Artifact: OCLP-EFI-V720-14-Sequoia" >> $env:GITHUB_STEP_SUMMARY
