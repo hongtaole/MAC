@@ -52,10 +52,17 @@ jobs:
             --disable_sip \
             --verbose
 
-          # 从日志输出中提取实际构建路径
+          # 直接用已知的路径模式查找
           echo "=== Locating built EFI ==="
-          BUILD_DIR=$(find /var/folders -path "*Build-Folder*OpenCore-Build" -type d 2>/dev/null | head -1)
+          BUILD_DIR=$(find /var/folders -path "*/Build-Folder/OpenCore-Build" -type d 2>/dev/null | head -1)
+
           if [[ -z "$BUILD_DIR" ]]; then
+            echo "Trying alternative pattern..."
+            BUILD_DIR=$(find /var/folders -path "*/Build-Folder/*OpenCore*Build*" -type d 2>/dev/null | head -1)
+          fi
+
+          if [[ -z "$BUILD_DIR" ]]; then
+            echo "Trying broader search..."
             BUILD_DIR=$(find /var/folders -name "OpenCore-Build" -type d 2>/dev/null | head -1)
           fi
 
